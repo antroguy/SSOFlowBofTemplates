@@ -42,7 +42,7 @@ extern "C" {
 #define USER_AGENT "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 Edg/144.0.0.0"
 #define MAX_REDIRECTS 10
 // Paths
-#define GITLAB_SIGNIN_PATH "/users/sign_in"
+#define GITLAB_SIGNIN_PATH "/"
 #define GITLAB_SAML_PATH "/users/auth/saml"
 #define GITLAB_CALLBACK_PATH "/users/auth/saml/callback"
 // Buffer sizes
