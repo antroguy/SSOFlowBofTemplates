@@ -150,11 +150,6 @@ extern "C" {
         // ==================== REQUEST 4: POST SAMLResponse to Callback ====================
         BeaconPrintf(CALLBACK_OUTPUT, "[*] REQUEST 4: POST SAMLResponse Callback");
         perform_request_4_post_saml_callback(hSession, hConnect, samlResponse, lastReferer);
-        BeaconPrintf(CALLBACK_OUTPUT, "[+] REQUEST 4 SUCCESS: Authentication complete!");
-
-        // Final summary
-        BeaconPrintf(CALLBACK_OUTPUT, "[+] All 4 requests completed successfully");
-        BeaconPrintf(CALLBACK_OUTPUT, "[+] Session cookies retrieved");
 
     cleanup:
         // Cleanup in reverse order of allocation
