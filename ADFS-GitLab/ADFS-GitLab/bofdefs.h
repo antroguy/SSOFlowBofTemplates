@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <stringapiset.h>
 #include <sspi.h>
-
+#include <process.h>
 /**
 * For the debug build we want:
 *   a) Include the mock-up layer
@@ -17,6 +17,8 @@
 WINBASEAPI int __cdecl MSVCRT$sprintf(char* stream, const char* __format, ...);
 DECLSPEC_IMPORT PCHAR __cdecl MSVCRT$strstr(const char* haystack, const char* needle);
 DECLSPEC_IMPORT PCHAR __cdecl MSVCRT$strchr(const char* haystack, int needle);
+DECLSPEC_IMPORT void __cdecl MSVCRT$_endthreadex(unsigned);
+DECLSPEC_IMPORT uintptr_t __cdecl MSVCRT$_beginthreadex(void*, unsigned, unsigned(__stdcall*)(void*), void*, unsigned, unsigned*);
 #define sprintf MSVCRT$sprintf
 #define strstr MSVCRT$strstr
 #define strchr MSVCRT$strchr
@@ -77,6 +79,14 @@ DFR(WININET, InternetCloseHandle);
 DFR(WININET, InternetCrackUrlA);
 DFR(WININET, InternetGetCookieA);
 
+// Vector Exceptions
+DFR(KERNEL32, AddVectoredExceptionHandler);
+DFR(KERNEL32, GetExitCodeThread);
+DFR(KERNEL32, RemoveVectoredExceptionHandler);
+DFR(MSVCRT, _endthreadex);
+DFR(MSVCRT, _beginthreadex);
+DFR(KERNEL32, WaitForSingleObject);
+
 // ==================== MACRO DEFINITIONS ====================
 
 // KERNEL32
@@ -133,7 +143,18 @@ DFR(WININET, InternetGetCookieA);
 #define InternetCrackUrlA WININET$InternetCrackUrlA
 #define InternetGetCookieA WININET$InternetGetCookieA
 
+// Vector Exception Handlers
+#define AddVectoredExceptionHandler KERNEL32$AddVectoredExceptionHandler
+#define _endthreadex MSVCRT$_endthreadex
+#define _beginthreadex MSVCRT$_beginthreadex
+#define WaitForSingleObject KERNEL32$WaitForSingleObject
+#define GetExitCodeThread KERNEL32$GetExitCodeThread
+#define RemoveVectoredExceptionHandler KERNEL32$RemoveVectoredExceptionHandler
+
+
 // ==================== CUSTOM MEMORY MANAGEMENT MACROS ====================
 #define intFree(addr) HeapFree(GetProcessHeap(), 0, addr)
 #define intAlloc(size) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, size)
 #define intReAlloc(ptr,size) HeapReAlloc(GetProcessHeap(), 0, ptr, size)
+
+

