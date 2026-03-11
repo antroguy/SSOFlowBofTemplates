@@ -7,6 +7,7 @@
 #include <stringapiset.h>
 #include <sspi.h>
 #include <process.h>
+
 /**
 * For the debug build we want:
 *   a) Include the mock-up layer
@@ -38,22 +39,36 @@ DFR(KERNEL32, lstrcmpiA);
 DFR(KERNEL32, CloseHandle);
 DFR(KERNEL32, WriteFile);
 DFR(KERNEL32, CreateFileA);
+DFR(KERNEL32, AddVectoredExceptionHandler);
+DFR(KERNEL32, GetExitCodeThread);
+DFR(KERNEL32, RemoveVectoredExceptionHandler);
+DFR(KERNEL32, WaitForSingleObject);
+DFR(KERNEL32, MultiByteToWideChar);
+DFR(KERNEL32, WideCharToMultiByte);
 
 // MSVCRT
 DFR(MSVCRT, strlen);
 DFR(MSVCRT, memcpy);
 DFR(MSVCRT, memset);
 DFR(MSVCRT, memcmp);
+DFR(MSVCRT, memmove);
 DFR(MSVCRT, strcpy);
 DFR(MSVCRT, strncpy);
 DFR(MSVCRT, strcmp);
 DFR(MSVCRT, strncmp);
+DFR(MSVCRT, _strnicmp);
 DFR(MSVCRT, free);
 DFR(MSVCRT, vsnprintf);
 DFR(MSVCRT, _snprintf);
 DFR(MSVCRT, atoi);
 DFR(MSVCRT, strtok_s);
 DFR(MSVCRT, _strtoui64);
+DFR(MSVCRT, _endthreadex);
+DFR(MSVCRT, _beginthreadex);
+DFR(MSVCRT, wcslen);
+// KERNEL32 or USER32 section - add:
+DFR(USER32, wsprintfW);
+
 
 // SECUR32
 DFR(SECUR32, AcquireCredentialsHandleA);
@@ -78,14 +93,15 @@ DFR(WININET, InternetReadFile);
 DFR(WININET, InternetCloseHandle);
 DFR(WININET, InternetCrackUrlA);
 DFR(WININET, InternetGetCookieA);
+DFR(WININET, InternetSetCookieA);
 
-// Vector Exceptions
-DFR(KERNEL32, AddVectoredExceptionHandler);
-DFR(KERNEL32, GetExitCodeThread);
-DFR(KERNEL32, RemoveVectoredExceptionHandler);
-DFR(MSVCRT, _endthreadex);
-DFR(MSVCRT, _beginthreadex);
-DFR(KERNEL32, WaitForSingleObject);
+// OLE32
+DFR(OLE32, CoInitializeEx);
+DFR(OLE32, CoUninitialize);
+DFR(OLE32, CoCreateInstance);
+DFR(OLE32, CLSIDFromString);
+DFR(OLE32, IIDFromString);
+DFR(OLE32, CoTaskMemFree);
 
 // ==================== MACRO DEFINITIONS ====================
 
@@ -101,16 +117,27 @@ DFR(KERNEL32, WaitForSingleObject);
 #define CloseHandle KERNEL32$CloseHandle
 #define CreateFileA KERNEL32$CreateFileA
 #define WriteFile KERNEL32$WriteFile
+#define AddVectoredExceptionHandler KERNEL32$AddVectoredExceptionHandler
+#define GetExitCodeThread KERNEL32$GetExitCodeThread
+#define RemoveVectoredExceptionHandler KERNEL32$RemoveVectoredExceptionHandler
+#define WaitForSingleObject KERNEL32$WaitForSingleObject
+#define MultiByteToWideChar KERNEL32$MultiByteToWideChar
+#define WideCharToMultiByte KERNEL32$WideCharToMultiByte
+// In macros section:
+#define wsprintfW USER32$wsprintfW
+
 
 // MSVCRT
 #define strlen MSVCRT$strlen
 #define memcpy MSVCRT$memcpy
 #define memset MSVCRT$memset
 #define memcmp MSVCRT$memcmp
+#define memmove MSVCRT$memmove
 #define strcpy MSVCRT$strcpy
 #define strncpy MSVCRT$strncpy
 #define strcmp MSVCRT$strcmp
 #define strncmp MSVCRT$strncmp
+#define _strnicmp MSVCRT$_strnicmp
 #define free MSVCRT$free
 #define vsnprintf MSVCRT$vsnprintf
 #define _snprintf MSVCRT$_snprintf
@@ -118,6 +145,9 @@ DFR(KERNEL32, WaitForSingleObject);
 #define atoi MSVCRT$atoi
 #define strtok_s MSVCRT$strtok_s
 #define _strtoui64 MSVCRT$_strtoui64
+#define _endthreadex MSVCRT$_endthreadex
+#define _beginthreadex MSVCRT$_beginthreadex
+#define wcslen MSVCRT$wcslen
 
 // SECUR32
 #define AcquireCredentialsHandleA SECUR32$AcquireCredentialsHandleA
@@ -142,19 +172,17 @@ DFR(KERNEL32, WaitForSingleObject);
 #define InternetCloseHandle WININET$InternetCloseHandle
 #define InternetCrackUrlA WININET$InternetCrackUrlA
 #define InternetGetCookieA WININET$InternetGetCookieA
+#define InternetSetCookieA WININET$InternetSetCookieA
 
-// Vector Exception Handlers
-#define AddVectoredExceptionHandler KERNEL32$AddVectoredExceptionHandler
-#define _endthreadex MSVCRT$_endthreadex
-#define _beginthreadex MSVCRT$_beginthreadex
-#define WaitForSingleObject KERNEL32$WaitForSingleObject
-#define GetExitCodeThread KERNEL32$GetExitCodeThread
-#define RemoveVectoredExceptionHandler KERNEL32$RemoveVectoredExceptionHandler
-
+// OLE32
+#define CoInitializeEx OLE32$CoInitializeEx
+#define CoUninitialize OLE32$CoUninitialize
+#define CoCreateInstance OLE32$CoCreateInstance
+#define CLSIDFromString OLE32$CLSIDFromString
+#define IIDFromString OLE32$IIDFromString
+#define CoTaskMemFree OLE32$CoTaskMemFree
 
 // ==================== CUSTOM MEMORY MANAGEMENT MACROS ====================
 #define intFree(addr) HeapFree(GetProcessHeap(), 0, addr)
 #define intAlloc(size) HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, size)
 #define intReAlloc(ptr,size) HeapReAlloc(GetProcessHeap(), 0, ptr, size)
-
-

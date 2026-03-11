@@ -1032,7 +1032,7 @@ extern "C" {
     }
     void clear_all_cookies() {
         // This clears ALL cookies and cache for the current process
-        if (!InternetSetOption(NULL, INTERNET_OPTION_END_BROWSER_SESSION, NULL, 0)) {
+        if (!InternetSetOptionA(NULL, INTERNET_OPTION_END_BROWSER_SESSION, NULL, 0)) {
             BeaconPrintf(CALLBACK_ERROR, "[!] Failed to clear session (Error: %lu)", GetLastError());
         }
 
