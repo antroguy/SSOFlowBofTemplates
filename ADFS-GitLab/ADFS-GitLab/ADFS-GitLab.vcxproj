@@ -233,6 +233,7 @@
     <ClCompile Include="ADFS-GitLab.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\User\source\repos\BOF-Template\x64\Debug\GetAccessTokenWithESTSCookie.x64.exe</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="PRT-Github-OIDC.cpp" />
     <ClCompile Include="PRT-Github.cpp" />
   </ItemGroup>
   <ItemGroup>

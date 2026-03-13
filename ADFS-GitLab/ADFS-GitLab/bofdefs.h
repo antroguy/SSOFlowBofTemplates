@@ -7,7 +7,7 @@
 #include <stringapiset.h>
 #include <sspi.h>
 #include <process.h>
-
+#include <WinUser.h>
 /**
 * For the debug build we want:
 *   a) Include the mock-up layer

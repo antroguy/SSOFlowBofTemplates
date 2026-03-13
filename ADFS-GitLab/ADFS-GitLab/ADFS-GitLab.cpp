@@ -5,6 +5,9 @@
 #pragma comment(lib, "Secur32.lib")
 #pragma comment(lib, "Crypt32.lib")
 #pragma comment(lib, "Wininet.lib")
+#pragma comment(lib, "Ole32.lib")
+#pragma comment(lib, "user32.lib")
+
 #undef DECLSPEC_IMPORT
 #define DECLSPEC_IMPORT
 #include "base\mock.h"
