@@ -1,3 +1,74 @@
+// ==================== OIDC + PRT FLOW DOCUMENTATION ====================
+// This BOF implements an OpenID Connect (OIDC) authentication flow to access
+// GitHub Enterprise that uses Azure AD (Microsoft Entra ID) as its identity
+// provider. The flow leverages a Primary Refresh Token (PRT) for seamless
+// SSO authentication without requiring user credentials.
+//
+// AUTHENTICATION FLOW:
+//
+// PRT ACQUISITION (Prerequisites):
+//   1. GET /Common/oauth2/authorize (login.microsoftonline.com)
+//      Purpose: Retrieve Azure AD nonce for PRT request
+//      Method: GET
+//      Target: /Common/oauth2/authorize?resource=https://graph.windows.net&...
+//      Response: JavaScript config containing nonce value in $Config object
+//      Extracts: nonce from "nonce":"<value>" in response body
+//
+//   2. COM Interface: IProofOfPossessionCookieInfoManager
+//      Purpose: Request PRT cookie using Windows CloudAP plugin
+//      CLSID: {A9927F85-A304-4390-8B23-A75F1C668600}
+//      IID: {CDAECE56-4EDF-43DF-B113-88E4556FA1BB}
+//      Method: GetCookieInfoForUri with nonce-embedded URI
+//      URI Format: https://login.microsoftonline.com/common/oauth2/authorize?sso_nonce={nonce}
+//      Returns: x-ms-refreshtokencredential cookie (PRT-derived token)
+//      Note: Requires device to be Azure AD joined/registered with valid PRT
+//            Cookie contains cryptographic proof of device + user identity
+//
+// REQUEST 1: GET /enterprises/{name}/sso (GitHub)
+//   Purpose: Obtain CSRF protection token and session cookies from GitHub
+//   Method: GET
+//   Response: HTML page containing authenticity_token in hidden form field
+//   Extracts: authenticity_token value (CSRF token)
+//
+// REQUEST 2: POST /enterprises/{name}/oidc/initiate (GitHub)
+//   Purpose: Initiate OIDC authentication flow with Azure AD
+//   Method: POST
+//   Body: authenticity_token={url_encoded_token}
+//   Response: HTML with meta refresh or data-url attribute containing Azure AD URL
+//   Extracts: data-url attribute with full OIDC authorization URL including:
+//            - client_id: GitHub's Azure AD application ID
+//            - redirect_uri: GitHub's OIDC callback endpoint
+//            - response_type: code id_token (hybrid flow)
+//            - response_mode: form_post
+//            - scope: openid profile email
+//            - state: Random state value for CSRF protection
+//            - nonce: Random nonce for replay protection
+//   Note: GitHub generates the OIDC request with proper parameters
+//
+// REQUEST 3: GET Azure AD Authorization URL (Azure AD)
+//   Purpose: Authenticate to Azure AD using PRT and obtain OIDC tokens
+//   Method: GET
+//   Headers: Cookie: x-ms-refreshtokencredential={prt_cookie}
+//   PRT Cookie: Contains signed token proving device + user identity
+//   Response: HTML form with auto-submit containing OIDC response parameters
+//   Extracts: - code (name="code" value="..."): Authorization code for token exchange
+//            - id_token (name="id_token" value="..."): JWT containing user claims
+//            - state (name="state" value="..."): Original state value for validation
+//            - session_state (name="session_state" value="..."): Session management
+//
+// REQUEST 4: POST /auth/oidc/callback (GitHub)
+//   Purpose: Submit OIDC tokens to GitHub to establish authenticated session
+//   Method: POST (attempted twice for reliable cookie handling)
+//   Body: code={url_encoded_code}&
+//         id_token={url_encoded_id_token}&
+//         state={state}&
+//         session_state={session_state}
+//   Response: HTTP 302 redirect + Set-Cookie with authenticated session
+//   Extracts: user_session cookie (GitHub authenticated session token)
+//   Note: Two POST attempts ensure session cookies are properly established
+//         First attempt may set CSRF cookies
+//         Second attempt retrieves user_session cookie
+
 #include <Windows.h>
 #include "base\helpers.h"
 #ifdef _DEBUG
@@ -56,6 +127,7 @@ extern "C" {
 #ifndef INTERNET_FLAG_NO_COOKIES
 #define INTERNET_FLAG_NO_COOKIES 0x00080000
 #endif
+
 
 // ==================== Cookie Management Structures ====================
     typedef struct {

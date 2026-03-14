@@ -1,3 +1,43 @@
+// ==================== SAML FLOW DOCUMENTATION ====================
+// This BOF implements a SAML 2.0 authentication flow to access a GitLab instance
+// that uses Active Directory Federation Services (ADFS) as its identity provider.
+// The flow leverages Kerberos authentication to obtain a SAML assertion.
+//
+// AUTHENTICATION FLOW:
+//
+// REQUEST 1: GET /users/sign_in (GitLab)
+//   Purpose: Obtain CSRF token and session cookies from GitLab
+//   Method: GET
+//   Response: HTML page containing authenticity_token (CSRF token)
+//   Extracts: authenticity_token value from hidden form field
+//
+// REQUEST 2: POST /users/auth/saml (GitLab)
+//   Purpose: Initiate SAML authentication flow with GitLab's IdP
+//   Method: POST
+//   Body: authenticity_token={token}
+//   Response: HTTP 302 redirect to ADFS with SAMLRequest parameter embedded in URL
+//   Extracts: Location header containing ADFS URL with SAMLRequest
+//   Note: This leverages the application to generate the SAMLRequest with proper claims,
+//         avoiding the need to manually construct a valid SAML request
+//
+// REQUEST 3: Follow Redirect Chain to ADFS (ADFS)
+//   Purpose: Authenticate to ADFS using Kerberos and obtain SAML assertion
+//   Method: GET (follows redirects)
+//   Headers: Authorization: Negotiate {base64_spnego_token}
+//   SPNEGO Token: Generated using AcquireCredentialsHandle + InitializeSecurityContext
+//                 with SPN: HTTP/adfs.ludus.nuketown
+//   Response: HTML form containing SAMLResponse (Base64-encoded SAML assertion)
+//   Extracts: SAMLResponse value from hidden form field (name="SAMLResponse")
+//
+// REQUEST 4: POST /users/auth/saml/callback (GitLab)
+//   Purpose: Submit SAML assertion to GitLab to establish authenticated session
+//   Method: POST
+//   Body: SAMLResponse={url_encoded_saml_response}
+//   Response: HTTP 302 redirect + Set-Cookie headers with session cookies
+//   Extracts: Session cookies (_gitlab_session, etc.)
+
+
+
 #include <Windows.h>
 #include "base\helpers.h"
 
@@ -48,15 +88,6 @@ extern "C" {
 #define PATH_BUFFER_SIZE 1024
 #define HEADER_BUFFER_SIZE 4096
 #define REFERER_BUFFER_SIZE 1024
-
-
-// ==================== SAML Flow Here ====================
-// 1. First request will hit the Application Sign-In URL (This is because we will be using the applicatition to generate the SAML request, otherwise 
-// we would need to guess the claims within the SAML Request. This will generate an authenticity token that can be used to request a SAMLrequest token.
-// 2. Make a request for a SAMLrequest token. The application will return a redirect URL with the SAML request
-// 3. Provide SAML request to ADFS server
-// 4. Provide SAML assertion back to application for session cookies
-
 
 // ==================== FUNCTION DECLARATIONS ====================
     static void print_last_error(const char* msg);

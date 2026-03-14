@@ -1,3 +1,57 @@
+// ==================== SAML + PRT FLOW DOCUMENTATION ====================
+// This BOF implements a SAML 2.0 authentication flow to access GitHub Enterprise
+// that uses Azure AD (Microsoft Entra ID) as its identity provider.
+// The flow leverages a Primary Refresh Token (PRT) for seamless SSO authentication.
+//
+// AUTHENTICATION FLOW:
+//
+// PRT ACQUISITION (Prerequisites):
+//   1. GET /Common/oauth2/authorize (login.microsoftonline.com)
+//      Purpose: Retrieve Azure AD nonce for PRT request
+//      Method: GET
+//      Response: JavaScript config containing nonce value
+//      Extracts: nonce from $Config JSON object
+//
+//   2. COM Interface: IProofOfPossessionCookieInfoManager
+//      Purpose: Request PRT cookie using Windows CloudAP plugin
+//      CLSID: {A9927F85-A304-4390-8B23-A75F1C668600}
+//      IID: {CDAECE56-4EDF-43DF-B113-88E4556FA1BB}
+//      Method: GetCookieInfoForUri with nonce-embedded URI
+//      URI Format: https://login.microsoftonline.com/common/oauth2/authorize?sso_nonce={nonce}
+//      Returns: x-ms-refreshtokencredential cookie containing signed PRT token
+//      Note: Requires device to be Azure AD joined/registered with valid PRT
+//
+// REQUEST 1: GET /enterprises/{name}/sso (GitHub)
+//   Purpose: Obtain CSRF token and session cookies from GitHub Enterprise
+//   Method: GET
+//   Response: HTML page containing authenticity_token
+//   Extracts: authenticity_token value from hidden form field
+//   Cookies: Establishes session cookies (_gh_sess, etc.) in CookieJar
+//
+// REQUEST 2: POST /enterprises/{name}/saml/initiate (GitHub)
+//   Purpose: Initiate SAML authentication flow with Azure AD
+//   Method: POST
+//   Body: authenticity_token={url_encoded_token}
+//   Response: HTML with meta refresh tag containing Azure AD authorization URL
+//   Extracts: data-url attribute with full Azure AD SAML request URL
+//   Note: GitHub generates the SAMLRequest with proper claims and RelayState
+//
+// REQUEST 3: GET Azure AD Authorization URL (Azure AD)
+//   Purpose: Authenticate to Azure AD using PRT and obtain SAML assertion
+//   Method: GET
+//   Headers: Cookie: x-ms-refreshtokencredential={prt_cookie}
+//   Response: HTML form with auto-submit containing SAMLResponse and RelayState
+//   Extracts: - SAMLResponse (name="SAMLResponse" value="...")
+//            - RelayState (name="RelayState" value="...")
+//
+// REQUEST 4: POST /enterprises/{name}/saml/consume (GitHub)
+//   Purpose: Submit SAML assertion to GitHub to establish authenticated session
+//   Method: POST (attempted twice for cookie handling)
+//   Body: SAMLResponse={url_encoded_saml_response}&RelayState={relay_state}
+//   Response: HTTP 302 redirect + Set-Cookie with authenticated session cookies
+//   Extracts: user_session cookie (GitHub session token)
+//   Note: Two POST attempts ensure all cookies are properly set (First request wont get session cookie)
+
 #include <Windows.h>
 #include "base\helpers.h"
 #ifdef _DEBUG
@@ -24,8 +78,8 @@ extern "C" {
 #include "bofdefs.h"
 #include <wininet.h>
 
-    // ==================== CONFIGURATION - MODIFY THESE ====================
-    // Domain and network configuration
+// ==================== CONFIGURATION - MODIFY THESE ====================
+// Domain and network configuration
 #define TARGET_DOMAIN "antrovmp"
 #define GITHUB_HOST "github.com"
 #define AZURE_AD_HOST "login.microsoftonline.com"
