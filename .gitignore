@@ -7,3 +7,5 @@ ADFS-GitLab/ADFS-GitLab/x64/Release/ADFS-GitLab.log
 *.obj
 *.obj
 /ADFS-GitLab/packages
+/SSOFlowBofTemplates/packages
+/SSOFlowBofTemplates/.vs

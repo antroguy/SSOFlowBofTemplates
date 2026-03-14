@@ -32,6 +32,7 @@
     <ProjectGuid>{58ebee7c-b0cf-49e3-ae82-e60750c03613}</ProjectGuid>
     <RootNamespace>BOFTemplate</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <ProjectName>SSOFlowBofTemplates</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -230,11 +231,11 @@
   <ItemGroup>
     <ClCompile Include="base\mock.cpp" />
     <ClCompile Include="base\mock_syscalls.cpp" />
-    <ClCompile Include="ADFS-GitLab.cpp">
+    <ClCompile Include="ADFS-GitLab-SAML.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\User\source\repos\BOF-Template\x64\Debug\GetAccessTokenWithESTSCookie.x64.exe</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="PRT-Github-OIDC.cpp" />
-    <ClCompile Include="PRT-Github.cpp" />
+    <ClCompile Include="PRT-Github-SAML.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="base\helpers.h" />

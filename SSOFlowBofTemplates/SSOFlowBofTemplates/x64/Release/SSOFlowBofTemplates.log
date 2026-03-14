@@ -1,0 +1,44 @@
+﻿Build started 3/13/2026 11:12:45 PM.
+Logging verbosity is set to: Normal.     1>Project "C:\Users\antrovmp\Documents\GitHub\FederatedAppAccessBOFS\SSOFlowBofTemplates\SSOFlowBofTemplates\SSOFlowBofTemplates.vcxproj" on node 2 (Build target(s)).
+     1>PrepareForNMakeBuild:
+         Creating directory "C:\Users\antrovmp\Documents\GitHub\FederatedAppAccessBOFS\SSOFlowBofTemplates\x64\Release\".
+       Build:
+         nmake all
+         
+         Microsoft (R) Program Maintenance Utility Version 14.43.34808.0
+         Copyright (C) Microsoft Corporation.  All rights reserved.
+         
+         
+         Microsoft (R) Program Maintenance Utility Version 14.43.34808.0
+         Copyright (C) Microsoft Corporation.  All rights reserved.
+         
+         	cl /c /GS- /std:c++20 /Fo"x64\Release\ADFS-GitLab-SAML.obj" ADFS-GitLab-SAML.cpp
+         Microsoft (R) C/C++ Optimizing Compiler Version 19.43.34808 for x64
+         Copyright (C) Microsoft Corporation.  All rights reserved.
+         
+         ADFS-GitLab-SAML.cpp
+         	cl /c /GS- /std:c++20 /Fo"x64\Release\PRT-Github-OIDC.obj" PRT-Github-OIDC.cpp
+         Microsoft (R) C/C++ Optimizing Compiler Version 19.43.34808 for x64
+         Copyright (C) Microsoft Corporation.  All rights reserved.
+         
+         PRT-Github-OIDC.cpp
+         	cl /c /GS- /std:c++20 /Fo"x64\Release\PRT-Github-SAML.obj" PRT-Github-SAML.cpp
+         Microsoft (R) C/C++ Optimizing Compiler Version 19.43.34808 for x64
+         Copyright (C) Microsoft Corporation.  All rights reserved.
+         
+         PRT-Github-SAML.cpp
+         	copy "x64\Release\\*.obj" "..\x64\Release\"
+         x64\Release\\ADFS-GitLab-SAML.obj
+         x64\Release\\PRT-Github-OIDC.obj
+         x64\Release\\PRT-Github-SAML.obj
+                 3 file(s) copied.
+         	del /F "..\x64\Release\\*.x64.o"
+         Could Not Find C:\Users\antrovmp\Documents\GitHub\FederatedAppAccessBOFS\SSOFlowBofTemplates\x64\Release\*.x64.o
+         	ren "..\x64\Release\*.obj" "*.x64.o"
+     1>Done Building Project "C:\Users\antrovmp\Documents\GitHub\FederatedAppAccessBOFS\SSOFlowBofTemplates\SSOFlowBofTemplates\SSOFlowBofTemplates.vcxproj" (Build target(s)).
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:00.97
