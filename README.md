@@ -48,4 +48,4 @@ Or simply share the template with Claude along with your target's authentication
 
 ## Disclaimer
 
-For authorized security testing only.
+For authorized security testing only
