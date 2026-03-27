@@ -21,7 +21,6 @@ OpenID Connect flow using Azure AD with Primary Refresh Token (PRT) to access Gi
 Before using these templates, you **must** modify configuration values for your environment:
 - Hostnames and domains
 - URL paths
-- Token/cookie names
 - Authentication endpoints
 
 Each BOF has a `CONFIGURATION` section at the top with values that need to be changed.
